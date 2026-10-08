@@ -1,0 +1,915 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#05070e">
+<title>Scheduling Analysis of UAV Flight-Control Workloads on PREEMPT_RT Linux — Raspberry Pi 4 Replication</title>
+<meta name="description" content="A testing &amp; verification dossier: scheduling analysis of a 250 Hz UAV flight-control workload on Raspberry Pi 4 with 4 GB RAM, standard Linux kernel versus PREEMPT_RT. Replicating the Raspberry Pi 5 study by Giacomossi et al.">
+<link rel="canonical" href="https://daotrunganhvt72.github.io/uav-preempt-rt-pi4/">
+<meta property="og:title" content="Scheduling Analysis of UAV Flight-Control Workloads on PREEMPT_RT Linux — Raspberry Pi 4 Replication">
+<meta property="og:description" content="250 Hz control task, one 4 ms deadline, two kernels, eight scheduling policies, 96 planned runs. A replication of the Pi 5 study on Raspberry Pi 4.">
+<meta property="og:type" content="article">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="https://daotrunganhvt72.github.io/uav-preempt-rt-pi4/assets/og-cover.jpg">
+<link rel="icon" href="assets/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@400;500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Spline+Sans+Mono:wght@400;500&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="cinema.css">
+</head>
+<body>
+<canvas id="universe" aria-hidden="true"></canvas>
+<a class="skip" href="#van-de">Read the main content</a>
+<div class="read-progress" aria-hidden="true">
+<i id="progress">
+</i>
+</div>
+<header class="masthead">
+<a class="wordmark" href="#dau">UAV·RT<span>PREEMPT_RT · PI&nbsp;4 · 4&nbsp;GB</span>
+</a>
+<nav aria-label="Chapter navigation">
+<a href="#van-de">Problem</a>
+<a href="#stages">Stages</a>
+<a href="#reference">Results</a>
+<a href="#configs">Configs</a>
+<a href="#manual">Manual</a>
+</nav>
+<button id="menu-toggle" aria-label="Open chapter menu" aria-expanded="false">Chapters <span>＋</span>
+</button>
+</header>
+<aside class="chapter-menu" id="chapter-menu" hidden>
+<a href="#van-de">
+<span>01</span>The cost of being late</a>
+<a href="#stages">
+<span>02</span>M0 → M6, the road to data</a>
+<a href="#reference">
+<span>03</span>Reference results from Pi 5</a>
+<a href="#cycle">
+<span>04</span>Inside one task cycle</a>
+<a href="#configs">
+<span>05</span>Eight configurations</a>
+<a href="#platform">
+<span>06</span>Pi 4 versus Pi 5</a>
+<a href="#hypotheses">
+<span>07</span>Hypotheses and limits</a>
+<a href="#manual">
+<span>08</span>Field manual: first commands</a>
+<a href="#sources">
+<span>09</span>Open dossier &amp; references</a>
+<button id="motion-toggle" type="button" aria-pressed="true">Motion: <span>On</span></button>
+</aside>
+<main>
+<section class="cover" id="dau" data-chapter="Opening">
+<div class="cover-intro">
+<div class="cover-stage">
+<div class="light-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="cover-top">
+<p class="eyebrow">TESTING &amp; VERIFICATION · PROJECT PROPOSAL</p>
+<span class="issue">OCTOBER 2026<br>RASPBERRY PI 4 MODEL B · 4 GB RAM</span>
+</div>
+<div class="cover-title">
+<div>
+<p class="cover-pre">SCHEDULING ANALYSIS OF UAV FLIGHT-CONTROL WORKLOADS</p>
+<h1>UAV CONTROL.<br><em>ON&nbsp;TIME.</em></h1>
+</div>
+<div class="cover-year" aria-hidden="true">RT</div>
+</div>
+<div class="hero-story"><span>REPLICATION · GIACOMOSSI ET AL. [1]</span><h2>250 HZ.<br>ONE LOOP.<br><em>ONE DEADLINE.</em></h2><p>A flight-control workload moves from Raspberry Pi 5 to Pi 4 — to measure what the kernel charges time.</p></div>
+<div class="cover-description">
+<p>The board is cheap. The kernel is general-purpose.<br>Can Linux deliver every control command inside 4 milliseconds?</p>
+<a class="begin" href="#van-de">
+<span>READ THE DOSSIER</span>
+<i aria-hidden="true">↓</i>
+</a>
+</div>
+<figure class="cover-photo">
+<picture>
+<img src="assets/uav-flight.jpg" alt="A quadcopter UAV in flight against a clear sky" fetchpriority="high" width="1200" height="600">
+</picture><button class="archive-action" data-image="assets/uav-flight.jpg" data-alt="A quadcopter UAV in flight" data-caption="Illustrative photo: a quadcopter in flight. The experiment computes attitude control and output allocation in memory; sensors and motors are outside this stage. Workload definition follows [1]." aria-label="View the UAV photo larger">VIEW PHOTO ＋</button>
+<div class="photo-marker">
+<span>01</span>
+<p>UNMANNED AERIAL VEHICLE<br>FLIGHT-CONTROL WORKLOAD</p>
+</div>
+<figcaption>The workload: attitude control + output allocation at 250 Hz, following [1]. <a href="#anh">Photo credits</a>
+</figcaption>
+</figure>
+<figure class="hero-side hero-side-a">
+<img src="assets/raspberry-pi-4.jpg" alt="Raspberry Pi 4 Model B single-board computer">
+<figcaption>MEASUREMENT NODE<br>Pi 4 Model B · BCM2711 · 4 GB [6]</figcaption>
+</figure>
+<figure class="hero-side hero-side-b">
+<img src="assets/architecture-report.png" alt="Proposed experimental architecture: Windows host and Raspberry Pi 4">
+<figcaption>FIG. 1 · PROPOSED ARCHITECTURE<br>Host control, board measures [1, §4.2]</figcaption>
+</figure>
+<div class="scene-cue" aria-hidden="true"><span>SCROLL TO ENTER THE EXPERIMENT</span><i></i><span>01 / 09</span></div>
+</div>
+</div>
+<div class="cover-facts">
+<div>
+<strong>250<small>Hz</small>
+</strong>
+<span>CONTROL RATE · T = 4,000 µs <a href="#s1">[1]</a>
+</span>
+</div>
+<div>
+<strong>4,000<small>µs</small>
+</strong>
+<span>RELATIVE DEADLINE · D = T <a href="#s1">[1]</a>
+</span>
+</div>
+<div>
+<strong>32</strong>
+<span>CONFIGURATIONS · 2 KERNELS × 8 × 2 <a href="#s1">[1]</a>
+</span>
+</div>
+<div>
+<strong>96</strong>
+<span>PLANNED RUNS · ≥ 3 PER CONFIG</span>
+</div>
+</div>
+</section>
+
+<section class="intro-section section-shell" id="van-de" data-chapter="The cost of being late">
+<div class="section-label">
+<span>01 / THE PROBLEM</span>
+<span>WHEN “LATE” MEANS “WRONG”</span>
+</div>
+<div class="intro-layout">
+<h2 class="reveal">The right answer,<br>
+<em>delivered too late.</em>
+</h2>
+<div class="reading">
+<p class="dropcap">A UAV controller must produce commands in time to respond to changes in flight state. A common architecture splits the work: a microcontroller stabilizes the aircraft while a Linux computer handles images, navigation or planning. When both kinds of work share one computer, the control task competes with applications and background services for the CPU. <a class="ref" href="#s1">[1]</a>
+</p>
+<p>On a general-purpose kernel, a late command can leave an actuator steering by stale data. In a real-time system, correctness includes both the computed result <strong>and the time it becomes available</strong>. This project keeps the sensors and motors out of scope and asks a sharper question: what does the operating system itself cost, cycle after cycle? <a class="ref" href="#s1">[1]</a>
+</p>
+<aside class="margin-note">
+<span>READ ONE TERM PRECISELY</span>
+<p><strong>Jitter</strong> is the variation of timing around the nominal schedule. Metrics in this dossier — percentiles and maxima — describe the <strong>tail</strong>: rare but large delays that a mean value hides. <a class="ref" href="#s1">[1]</a>
+</p>
+</aside>
+</div>
+</div>
+<table class="rt-table">
+<caption>THREE DEGREES OF “LATE” — AND WHAT EACH ONE OWES THE ENGINEER [1, §2.1]</caption>
+<thead>
+<tr><th>Requirement</th><th>Meaning of a late result</th><th>Evaluation owed</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>Hard real-time</td><td>A mandatory timing constraint is <em>violated</em></td><td>Establish bounds and their operating conditions</td>
+</tr>
+<tr><td>Firm real-time</td><td>The result is <em>no longer useful</em> after its deadline</td><td>Record discarded results</td>
+</tr>
+<tr><td>Soft real-time</td><td>The result remains useful, but service quality <em>degrades</em></td><td>Assess delay and quality loss</td>
+</tr>
+</tbody>
+</table>
+<div class="two-states">
+<div>
+<span>GENERAL-PURPOSE OS</span>
+<h3>Fairness &amp;<br>throughput</h3>
+</div>
+<span class="bridge" aria-hidden="true">＋</span>
+<div>
+<span>CONTROL LOOP</span>
+<h3>Deadlines &amp;<br>determinism</h3>
+</div>
+<p class="state-result">ONE COMPUTER, SHARED — BY DESIGN</p>
+</div>
+<p class="editor-note">The control task runs at f = 250 Hz, so T = 1/f = 4,000 µs and the relative deadline D = T: every invocation must finish within 4 ms of its nominal release, following the model in [1].</p>
+<h3 style="font-size:1.6rem;letter-spacing:.02em;margin-top:54px">Four research questions</h3>
+<ul class="rq-list">
+<li><b>RQ1</b><span>How does PREEMPT_RT change wake-up latency compared with a standard kernel on the same Pi 4?</span></li>
+<li><b>RQ2</b><span>Does load on other cores affect completion time when the main task is pinned to a dedicated CPU?</span></li>
+<li><b>RQ3</b><span>Which tested configurations complete the workload within the 4 ms deadline?</span></li>
+<li><b>RQ4</b><span>Can kernel traces explain the largest observed delays?</span></li>
+</ul>
+</section>
+
+<section class="journey-section" id="stages" data-chapter="M0 → M6, the road to data">
+<div class="section-shell">
+<div class="section-label">
+<span>02 / IMPLEMENTATION STAGES</span>
+<span>M0 — M6</span>
+</div>
+<div class="section-heading">
+<h2>Before any number:<br>a <em>trustworthy rig.</em>
+</h2>
+<p>Seven stages with fixed completion conditions. The measurement program must work on the standard kernel first — faults are easier to locate before real-time configuration enters the room.</p>
+</div>
+</div>
+<div class="journey">
+<div class="journey-stage">
+<div class="journey-sticky">
+<div class="timeline-big">
+<span id="journey-month">M0</span>
+<small id="journey-year">FIRST CONTACT</small>
+</div>
+<nav class="timeline-nav" aria-label="Implementation stages">
+<a href="#moc-1" class="active">
+<i>
+</i>
+<span>STAGE M0</span>Setup</a>
+<a href="#moc-2">
+<i>
+</i>
+<span>M1 — M2</span>Baseline</a>
+<a href="#moc-3">
+<i>
+</i>
+<span>M3 — M4</span>RT prep</a>
+<a href="#moc-4">
+<i>
+</i>
+<span>M5 — M6</span>Matrix &amp; analysis</a>
+</nav>
+<span class="folio">CHAPTER 02 / ALONG THE PIPELINE</span>
+</div>
+<div class="journey-stories" tabindex="0" aria-label="Content of the stage being read">
+<article class="journey-step" id="moc-1" data-code="M0" data-phase="FIRST CONTACT">
+<span class="step-date">STAGE M0 / FIRST CONTACT</span>
+<h3>Open the door<br>to the board.</h3>
+<p>The Pi 4 with 4 GB RAM already runs an operating system, but SSH has never been used. Enable it, connect from Windows, and save the machine's identity — OS, kernel, CPU, RAM, temperature, throttling flags — before changing anything. <a class="ref" href="#s13">[13]</a>
+</p>
+<div class="insight">
+<span>WHY THIS COMES FIRST</span>
+<p>Every later claim rides on a recorded environment. Save system information before modifying the card; retain the installed system for recovery.</p>
+</div>
+</article>
+<article class="journey-step" id="moc-2" data-code="M1–2" data-phase="BASELINE">
+<span class="step-date">STAGES M1 — M2 / STANDARD KERNEL</span>
+<h3>Trust the timer<br>before the payload.</h3>
+<p>M1 runs a latency pilot with cyclictest — one thread on CPU 2, priority 50, 4,000 µs interval, 2,500 iterations — testing the timer without the UAV payload. M2 integrates the control computation on the standard kernel and validates its outputs and CSV export. <a class="ref" href="#s14">[14]</a>
+</p>
+<p>Clock discipline comes from <strong>CLOCK_MONOTONIC</strong> and absolute sleeps: releases stay on the t₀ + kT schedule, and an interrupted sleep retries the same target. <a class="ref" href="#s7">[7]</a>
+</p>
+<div class="insight">
+<span>COMPLETION CONDITION</span>
+<p>Valid clock readings and logs for M1; correct payload outputs and a working CSV export for M2 — all before any RT configuration.</p>
+</div>
+</article>
+<article class="journey-step" id="moc-3" data-code="M3–4" data-phase="RT PREP">
+<span class="step-date">STAGES M3 — M4 / PREEMPT_RT</span>
+<h3>Bring in<br>the real-time kernel.</h3>
+<p>M3 boots a PREEMPT_RT kernel and confirms the evidence: <strong>CONFIG_PREEMPT_RT=y</strong> and a live /sys/kernel/realtime. M4 fixes CPU placement and pilots the environment — thermal behavior, memory pressure, and stress sized for this board. <a class="ref" href="#s2">[2]</a>
+</p>
+<figure class="archive">
+<button class="zoom-photo" data-image="assets/workflow-report.png" data-caption="Planned implementation stages M0–M6 and the checks required before progressing. Figure 2 of the report, following [1]." aria-label="View the implementation workflow figure">
+<img src="assets/workflow-report.png" alt="Diagram of implementation stages M0 to M6 with completion conditions" loading="lazy">
+<span>VIEW FIGURE ＋</span>
+</button>
+<figcaption>Fig. 2 · Stages M0–M6 and their completion conditions.<br>Report figure, workload after [1]. <a href="#s1">[1]</a>
+</figcaption>
+</figure>
+<div class="insight">
+<span>THE 4 GB CONSTRAINT</span>
+<p>On a 4 GB board, memory stress must be piloted first — start near 1 GiB total (two workers × 512 MiB) — so the scheduling study never silently becomes a memory-exhaustion study.</p>
+</div>
+</article>
+<article class="journey-step" id="moc-4" data-code="M5–6" data-phase="MEASURE">
+<span class="step-date">STAGES M5 — M6 / MEASUREMENT &amp; ANALYSIS</span>
+<h3>Run the matrix.<br>Read the tails.</h3>
+<p>32 configurations, at least three valid runs each: 500 warm-up cycles then 10,000 measured invocations per run, ~67.2 minutes of nominal workload. Kernel changes force reboots, so runs go in randomized blocks with the seed saved. <a class="ref" href="#s1">[1]</a>
+</p>
+<p>M6 answers the research questions within the evidence: percentiles and maxima, time series for delay bursts, distributions per configuration — and kernel traces collected in separate diagnostic runs. <a class="ref" href="#s1">[1]</a>
+</p>
+<a class="text-link" href="#cycle">Step into one task cycle</a>
+</article>
+</div>
+<button class="copy-more" data-copy="journey" hidden>READ ON ↓</button>
+<div class="gallery-deck">
+<figure class="gallery-card gallery-photo" data-card="0">
+<button class="zoom-photo" data-image="assets/uav-flight.jpg" data-caption="Illustrative photo: a quadcopter UAV in flight. The measured payload computes attitude control and output allocation with predefined inputs, following [1]." aria-label="View the UAV photo"><img src="assets/uav-flight.jpg" alt="A quadcopter UAV in flight" loading="lazy"><span>VIEW PHOTO ＋</span></button>
+<div class="gallery-photo-title">THE<br>WORKLOAD.</div><figcaption>Attitude control + output allocation, 250 Hz, in-memory inputs. <a href="#s1">[1]</a></figcaption>
+</figure>
+<figure class="gallery-card gallery-photo" data-card="1">
+<button class="zoom-photo" data-image="assets/raspberry-pi-4.jpg" data-caption="Raspberry Pi 4 Model B — BCM2711, four Cortex-A72 cores, 1 MB shared L2, 4 GB RAM. Specifications from Raspberry Pi documentation [6]." aria-label="View the Raspberry Pi 4 photo"><img src="assets/raspberry-pi-4.jpg" alt="Raspberry Pi 4 Model B board" loading="lazy"><span>VIEW PHOTO ＋</span></button>
+<div class="gallery-photo-title">THE<br>BOARD.</div><figcaption>Pi 4 Model B · BCM2711 · Cortex-A72 ×4 · 4 GB. <a href="#s6">[6]</a></figcaption>
+</figure>
+<figure class="gallery-card gallery-photo" data-card="2">
+<button class="zoom-photo" data-image="assets/architecture-report.png" data-caption="Proposed architecture: a Windows host for SSH, source control and analysis; the Pi 4 runs the measurement program and stress processes. Separation of control work and background load follows [1, §4.2]." aria-label="View the architecture figure"><img src="assets/architecture-report.png" alt="Experimental architecture diagram" loading="lazy"><span>VIEW FIGURE ＋</span></button>
+<div class="gallery-photo-title">FIG. 1<br>ARCHITECTURE.</div><figcaption>Host controls, board measures. Data analysis after each run. <a href="#s1">[1]</a></figcaption>
+</figure>
+<figure class="gallery-card gallery-poster" data-card="3">
+<div class="poster-eyebrow">CPU FLOOR PLAN · BCM2711</div>
+<div class="core-grid" aria-hidden="true">
+<div><span>CPU 0–1</span><b>STRESS</b><small>stress-ng + system services</small></div>
+<div class="hot"><span>CPU 2</span><b>CONTROL</b><small>task pinned · 250 Hz</small></div>
+<div><span>CPU 3</span><b>SPARE</b><small>auxiliary work if needed</small></div>
+<div><span>SHARED</span><b>DRAM · L2</b><small>1 MB cluster cache</small></div>
+</div>
+<p>FOUR CORES,<br><span>one dedicated to the loop</span></p><figcaption>Placement stays identical across kernels. <a href="#s1">[1, §4.2]</a></figcaption>
+</figure>
+</div>
+<div class="scene-signature" aria-hidden="true">02 / STAGES <span class="gallery-index">01 — 04</span></div>
+</div>
+</div>
+</section>
+
+<section class="data-section" id="reference" data-chapter="Reference results from Pi 5">
+<div class="section-shell">
+<div class="section-label">
+<span>03 / REFERENCE RESULTS</span>
+<span>RASPBERRY PI 5 · 8 GB · [1, TABLE 4]</span>
+</div>
+<div class="section-heading">
+<h2>Not “better.”<br>
+<em>Different tails.</em>
+</h2>
+<p>These numbers are not predictions for Pi 4. They are the measured maximum wake-up latencies under stress from the Raspberry Pi 5 study this project replicates — the reason each configuration must be judged on its own measurements. <a class="ref" href="#s1">[1]</a>
+</p>
+</div>
+<div class="turnout">
+<div class="turnout-title">
+<span>THE ONLY LINE THAT MATTERS</span>
+<strong>4,000<small>µs</small>
+</strong>
+<p>Relative deadline D = T at 250 Hz <a href="#s1">[1]</a>
+</p>
+</div>
+<div class="turnout-chart" role="img" aria-label="Deadline ruler, 0 to 4,000 microseconds. OTHER nice 0 standard kernel reaches 8,626 microseconds, beyond the deadline. FIFO priority 99 on PREEMPT_RT reaches 224 microseconds, 5.6 percent of the deadline. DEADLINE Q 800 microseconds on PREEMPT_RT reaches 197 microseconds, 4.9 percent.">
+<div class="axis">
+<span>0</span>
+<span>2,000 µs</span>
+<span>4,000 µs</span>
+</div>
+<div class="bar-row over">
+<span>OTHER n0 · std</span>
+<div class="bar-track">
+<i style="--value:100%">
+</i>
+</div>
+<b>8,626 µs ✕</b>
+</div>
+<div class="bar-row national">
+<span>FIFO P99 · RT</span>
+<div class="bar-track">
+<i style="--value:5.6%">
+</i>
+</div>
+<b>224 µs · 5.6%</b>
+</div>
+<div class="bar-row">
+<span>DL Q800 · RT</span>
+<div class="bar-track">
+<i style="--value:4.9%">
+</i>
+</div>
+<b>197 µs · 4.9%</b>
+</div>
+<p class="chart-note">One shared scale: 100% = the 4,000 µs deadline. The first row runs past it — SCHED_OTHER is not a real-time policy. Pi 5 data, measured under stress [1, table 4].</p>
+</div>
+</div>
+<div class="parliament-panel">
+<div class="parliament-top">
+<div>
+<span class="eyebrow">INTERACTIVE · 8 POLICIES × 2 KERNELS</span>
+<h3>Every policy.<br>Both kernels.</h3>
+<p class="chart-intro">Select a policy to compare its tails. The log scale keeps 160 µs and 9,424 µs on one honest axis; the dashed line is the deadline.</p>
+</div>
+<div class="chart-tabs" role="group" aria-label="Choose chart metric">
+<button data-mode="maxlat" aria-pressed="true">Max latency</button>
+<button data-mode="share" aria-pressed="false">vs deadline</button>
+<button data-mode="reduction" aria-pressed="false">RT gain</button>
+</div>
+</div>
+<div class="parliament-content">
+<div class="seat-visual">
+<div class="chart-graphic">
+<svg id="parliament" viewBox="0 0 720 460" role="img" aria-labelledby="chart-title chart-desc">
+<title id="chart-title">Maximum wake-up latency per policy, standard kernel versus PREEMPT_RT, from the Pi 5 reference [1]</title>
+<desc id="chart-desc">Grouped bars on a logarithmic axis from 100 to 10,000 microseconds. Each policy shows one bar for the standard kernel and one for PREEMPT_RT.</desc>
+<defs id="seat-materials">
+<filter id="seat-shadow" x="-60%" y="-50%" width="220%" height="240%"><feDropShadow dx="0" dy="2.8" stdDeviation="1" flood-color="#000" flood-opacity=".75"/></filter>
+<radialGradient id="stage-light"><stop stop-color="#5ce8c5" stop-opacity=".16"/><stop offset="1" stop-color="#5ce8c5" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse class="chart-plinth" cx="360" cy="420" rx="340" ry="30" fill="url(#stage-light)" aria-hidden="true"/>
+<path class="chart-baseline" d="M118 415 H700" fill="none" stroke="#5ce8c530" aria-hidden="true"/>
+<g id="chart-bars" filter="url(#seat-shadow)"></g>
+<g id="chart-grid" aria-hidden="true"></g>
+<g id="chart-marks" aria-hidden="true"></g>
+</svg>
+<div class="chart-center">
+<strong id="highlight-count">224</strong>
+<span id="highlight-label">FIFO P99 · RT MAX (µs)</span>
+</div>
+</div>
+<p class="chart-note">Maximum wake-up latency in microseconds, measured under stress on Raspberry Pi 5 [1, table 4]. Pi 4 numbers will replace this chart after measurement.</p>
+</div>
+<div class="legend-panel">
+<div class="chart-focus" id="chart-focus">
+<span class="eyebrow" id="chart-focus-eyebrow">POLICY IN FOCUS</span>
+<h4 id="chart-focus-name">SCHED_FIFO · priority 99</h4>
+<div class="focus-values"><div><strong id="chart-focus-count">1,848 → 224</strong><span> standard → RT (µs)</span></div><b id="chart-focus-percent">−87.9<small>%</small></b></div>
+<div class="focus-track" aria-hidden="true"><i id="chart-focus-bar" style="width:87.9%"></i></div>
+<p id="chart-focus-context">Select a policy below to focus its row in the chart.</p>
+</div>
+<p class="eyebrow" id="legend-heading">SELECT A POLICY TO FOCUS</p>
+<div class="legend-columns" aria-hidden="true"><span>POLICY</span><span>STD → RT</span><span>Δ RT</span></div>
+<div id="chart-legend">
+</div>
+<p class="chart-status" id="chart-status" aria-live="polite">8 policies, 2 kernels — Pi 5 reference [1, table 4].</p>
+<button class="reset" id="chart-reset">Show all</button>
+</div>
+</div>
+<details class="method">
+<summary>How to read these numbers correctly</summary>
+<div>
+<p>The bars show <strong>maxima</strong> of wake-up latency L under stress, measured on Raspberry Pi 5 with 8 GB RAM [1, table 4]. The deadline check in this project uses response time R = L + E — a small L alone never proves the 4 ms deadline is met, because the payload still has to execute.</p>
+<p>Improvement is computed as Δ = 100 × (M<sub>standard</sub> − M<sub>RT</sub>) / M<sub>standard</sub>. Note the exceptions: SCHED_OTHER nice 0 got <strong>worse</strong> under RT on Pi 5 (8,626 → 9,015 µs), and FIFO priority 50 beat priority 99 under RT (160 vs 224 µs). Changing the kernel or raising priority does not guarantee improvement in every metric — each configuration earns its own verdict.</p>
+<a class="text-link" href="data.csv" download>Download the data table (CSV)</a>
+</div>
+</details>
+</div>
+</div></section>
+<section class="session-section" id="cycle" data-chapter="Inside one task cycle">
+<div class="section-shell">
+<div class="section-label">
+<span>04 / INSIDE ONE CYCLE</span>
+<span>rₖ → sₖ → fₖ · EVERY 4 MS</span>
+</div>
+<div class="section-heading">
+<h2>Four beats,<br>
+<em>ten thousand times.</em>
+</h2>
+<p>Each of the 10,000 measured invocations follows the same rhythm. Timestamps are stored in nanoseconds and converted to microseconds only for presentation — no early rounding.</p>
+</div>
+</div>
+<div class="session-scene">
+<div class="session-stage">
+<div class="session-photo">
+<svg class="cycle-svg" viewBox="0 0 720 460" role="img" aria-label="Timing diagram of one task cycle: release r, wake-up s, payload execution, finish f; latency L from r to s, elapsed E from s to f, response R from r to f; deadline at 4 milliseconds.">
+<defs>
+<linearGradient id="payloadFill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#5ce8c5" stop-opacity=".34"/><stop offset="1" stop-color="#5ce8c5" stop-opacity=".10"/></linearGradient>
+<linearGradient id="latencyFill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#d7243f" stop-opacity=".30"/><stop offset="1" stop-color="#d7243f" stop-opacity=".08"/></linearGradient>
+</defs>
+<!-- grid: every 1 ms -->
+<g stroke="#ffffff0e" stroke-width="1">
+<line x1="150" y1="60" x2="150" y2="330"/><line x1="272.5" y1="60" x2="272.5" y2="330"/>
+<line x1="395" y1="60" x2="395" y2="330"/><line x1="517.5" y1="60" x2="517.5" y2="330"/>
+<line x1="640" y1="60" x2="640" y2="330"/>
+</g>
+<g font-family="Spline Sans Mono,monospace" font-size="11" fill="#5c6a70" text-anchor="middle">
+<text x="150" y="44">rₖ (0)</text><text x="272" y="44">1 ms</text><text x="395" y="44">2 ms</text>
+<text x="517" y="44">3 ms</text><text x="640" y="44">D = 4 ms</text>
+</g>
+<!-- deadline line -->
+<g class="seg seg-store"><line x1="640" y1="52" x2="640" y2="392" stroke="#d7243f" stroke-width="1.6" stroke-dasharray="7 6" opacity=".9"/><text x="648" y="70" font-family="Spline Sans Mono,monospace" font-size="10.5" fill="#ff7188">DEADLINE</text></g>
+<!-- L region -->
+<g class="seg seg-latency">
+<rect x="150" y="150" width="106" height="58" fill="url(#latencyFill)" rx="3"/>
+<line x1="150" y1="150" x2="150" y2="208" stroke="#d7243f" stroke-width="2"/>
+<line x1="256" y1="150" x2="256" y2="208" stroke="#d7243f" stroke-width="2"/>
+<text x="203" y="140" font-family="Spline Sans Mono,monospace" font-size="12" fill="#ff9dab" text-anchor="middle">L = sₖ − rₖ</text>
+<text x="203" y="186" font-family="Spline Sans Mono,monospace" font-size="11" fill="#e9c3cb" text-anchor="middle">wake-up</text>
+</g>
+<!-- E region -->
+<g class="seg seg-payload">
+<rect x="256" y="150" width="228" height="58" fill="url(#payloadFill)" rx="3" stroke="#5ce8c5" stroke-width="1.4"/>
+<text x="370" y="140" font-family="Spline Sans Mono,monospace" font-size="12" fill="#8ff0d8" text-anchor="middle">E = fₖ − sₖ</text>
+<text x="370" y="176" font-family="Spline Sans Mono,monospace" font-size="11" fill="#bfeee0" text-anchor="middle">attitude control</text>
+<text x="370" y="194" font-family="Spline Sans Mono,monospace" font-size="11" fill="#bfeee0" text-anchor="middle">+ output allocation</text>
+</g>
+<!-- release & wake ticks -->
+<g class="seg seg-sleep">
+<circle cx="150" cy="179" r="6" fill="#05070e" stroke="#8fb0ff" stroke-width="2"/>
+<text x="150" y="216" font-family="Spline Sans Mono,monospace" font-size="11" fill="#8fb0ff" text-anchor="middle">release rₖ</text>
+<path d="M60 179 C 90 179, 110 179, 138 179" stroke="#8fb0ff" stroke-width="1.6" fill="none" stroke-dasharray="2 5"/>
+<text x="60" y="164" font-family="Spline Sans Mono,monospace" font-size="11" fill="#8fb0ff">sleep(ABSTIME)</text>
+</g>
+<g class="seg seg-latency">
+<circle cx="256" cy="179" r="6" fill="#05070e" stroke="#ff9dab" stroke-width="2"/>
+<text x="256" y="216" font-family="Spline Sans Mono,monospace" font-size="11" fill="#ff9dab" text-anchor="middle">wake sₖ</text>
+</g>
+<g class="seg seg-store">
+<circle cx="484" cy="179" r="6" fill="#05070e" stroke="#5ce8c5" stroke-width="2"/>
+<text x="484" y="216" font-family="Spline Sans Mono,monospace" font-size="11" fill="#8ff0d8" text-anchor="middle">finish fₖ</text>
+</g>
+<!-- R bracket -->
+<g class="seg seg-store">
+<path d="M150 262 H484 M150 256 v12 M484 256 v12" stroke="#c3cbd1" stroke-width="1.4" fill="none"/>
+<text x="317" y="286" font-family="Spline Sans Mono,monospace" font-size="12.5" fill="#dfe6ea" text-anchor="middle">R = L + E ≤ 4,000 µs</text>
+</g>
+<!-- store row -->
+<g class="seg seg-store">
+<rect x="500" y="255" width="180" height="34" rx="5" fill="#020409" stroke="#5ce8c540" stroke-width="1"/>
+<text x="590" y="276" font-family="Spline Sans Mono,monospace" font-size="10.5" fill="#8ff0d8" text-anchor="middle">RAM sample: r, s, f</text>
+</g>
+<!-- next release arrow -->
+<g stroke="#5c6a70" stroke-width="1.2">
+<path d="M484 330 H700 M692 325 l8 5 -8 5" fill="none"/>
+</g>
+<text x="590" y="322" font-family="Spline Sans Mono,monospace" font-size="10.5" fill="#5c6a70" text-anchor="middle">next release rₖ₊₁ = rₖ + T</text>
+<!-- skip rule -->
+<text x="60" y="352" font-family="Spline Sans Mono,monospace" font-size="10.5" fill="#67747b">overrun? skip elapsed release points — count them, never catch up in bursts</text>
+<text x="60" y="415" font-family="Spline Sans Mono,monospace" font-size="11" fill="#5c6a70">CLOCK_MONOTONIC · TIMER_ABSTIME · EINTR → retry the same target [7]</text>
+</svg>
+<div class="session-overlay">
+<span class="eyebrow">ONE INVOCATION OF τ</span>
+<strong id="session-day">SLEEP</strong>
+<span id="session-event">Until the planned release</span>
+</div>
+<p class="session-credit">Timing model per [1, §2.2]; sampling procedure of this project. <a href="#s1">[1]</a>
+</p>
+</div>
+<div class="session-steps" tabindex="0" aria-label="Content of the cycle step being read">
+<article class="session-step" data-day="SLEEP" data-event="Until the planned release">
+<span class="step-date">STEP 01 / RELEASE rₖ</span>
+<h3>Sleep until<br>the planned release.</h3>
+<p>The program sleeps on <strong>CLOCK_MONOTONIC</strong> with <strong>TIMER_ABSTIME</strong>, so releases stay locked to the t₀ + kT grid — computation time never accumulates into the period. If a signal interrupts the sleep, it retries the same target; any other error stops the run. <a class="ref" href="#s7">[7]</a>
+</p>
+<blockquote>“The resolution reported by clock_getres does not establish wake-up accuracy.”<cite>Project sampling procedure · L must be measured directly [7]</cite>
+</blockquote>
+</article>
+<article class="session-step" data-day="WAKE" data-event="First timestamp sₖ">
+<span class="step-date">STEP 02 / WAKE-UP</span>
+<h3>Open your eyes.<br>Pay the latency.</h3>
+<p>The first timestamp <strong>sₖ</strong> lands immediately after a successful return from the sleep. The gap L = sₖ − rₖ is the kernel's surcharge: scheduler decisions, timer machinery, interrupt paths. A negative L after a successful sleep is a bug alarm — check target generation, clock readings and signal handling.</p>
+<div class="insight">
+<span>WHAT L DOES NOT INCLUDE</span>
+<p>L measures the wake-up only. The payload still has to run — which is why the deadline check uses R, never L alone.</p>
+</div>
+</article>
+<article class="session-step" data-day="RUN" data-event="Payload execution E">
+<span class="step-date">STEP 03 / PAYLOAD</span>
+<h3>Attitude control,<br>then allocation.</h3>
+<p>The computational payload runs with predefined inputs held in memory: attitude-control computation followed by output allocation, following the reference workload [1]. The authors' implementation may be reused with its revision recorded [10]; any simplified implementation must be validated before timing is trusted.</p>
+<p><strong>E = fₖ − sₖ</strong> may include time spent preempted — it is not pure CPU demand, and it cannot directly size a DEADLINE budget.</p>
+</article>
+<article class="session-step" data-day="STORE" data-event="Finish fₖ · check R">
+<span class="step-date">STEP 04 / STORE &amp; CHECK</span>
+<h3>Stamp it. File it.<br>Check the line.</h3>
+<p>The completion timestamp <strong>fₖ</strong> closes the sample: r, s and f go to preallocated RAM — CSV is written only after the run. The response <strong>R = fₖ − rₖ</strong> faces the 4 ms deadline; Rₖ &gt; 4,000 µs counts as a miss.</p>
+<div class="insight">
+<span>THE OVERRUN RULE</span>
+<p>After an overrun, the program skips elapsed release points and counts them — no catch-up bursts. The rule is fixed across all configurations, and both misses and skipped releases are reported.</p>
+</div>
+</article>
+</div>
+<button class="copy-more" data-copy="session" hidden>READ ON ↓</button>
+<nav class="session-rail" aria-label="Choose a step of the cycle"><button data-session="0">SLEEP</button><button data-session="1">WAKE</button><button data-session="2">RUN</button><button data-session="3">STORE</button></nav>
+<div class="scene-signature" aria-hidden="true">04 / ONE CYCLE <span class="session-index">01 — 04</span></div>
+</div>
+</div>
+</section>
+
+<section class="decree-section" id="configs" data-chapter="Eight configurations">
+<div class="section-shell">
+<div class="section-label">
+<span>05 / THE EXPERIMENTAL MATRIX</span>
+<span>8 SCHEDULING CONFIGURATIONS</span>
+</div>
+<div class="section-heading">
+<h2>Same task.<br>
+<em>Eight contracts.</em>
+</h2>
+<p>Each tab is one scheduling configuration from the matrix, with parameters following [1, table 3] and its Pi 5 reference maximum under stress. Select a file to read what the policy promises — and what it does not.</p>
+</div>
+<div class="decree-browser">
+<div class="decree-tabs" role="tablist" aria-label="Eight scheduling configurations" id="decree-tabs">
+</div>
+<article class="document" id="decree-panel" role="tabpanel" tabindex="0" aria-labelledby="decree-tab-0">
+<div class="document-top">
+<span>CONFIGURATION FILE</span>
+<span>PERIOD · DEADLINE = 4,000 µs</span>
+</div>
+<span class="document-num" id="decree-num">01</span>
+<p class="eyebrow" id="decree-category">SCHED_OTHER · NICE 0</p>
+<h3 id="decree-title">The baseline everyone runs</h3>
+<div id="decree-body">
+<p>SCHED_OTHER at nice 0 — the ordinary scheduling class every stock process uses.</p>
+</div>
+<noscript>
+<p>Eight files: SCHED_OTHER nice 0 and −19; SCHED_FIFO 50 and 99; SCHED_RR 50 and 99; SCHED_DEADLINE Q=400 µs and Q=800 µs. The interactive browser needs JavaScript; the full parameters also appear in the open dossier below.</p>
+</noscript>
+<div class="document-bottom">
+<span>INTERPRETED FROM SOURCES</span>
+<a id="decree-source" href="#s4">Check source [4]</a>
+</div>
+</article>
+</div>
+<div class="new-name reveal">
+<p>THE MATRIX PLANNED FOR PI 4</p>
+<h3>2 KERNELS × 8 POLICIES × 2 LOADS<br>= <em>32 CONFIGURATIONS</em>
+</h3>
+<span>IDLE VERSUS MIXED STRESS · ≥ 3 RUNS EACH · 96 RUNS · ~67.2 MIN NOMINAL</span>
+</div>
+<p class="city-story">Separate CPU-, memory- and kernel-stress types are additional diagnostic tests on FIFO 50 and FIFO 99 under both kernels. If stress is ever placed on CPU 2 itself, it is labeled as a separate experiment — it breaks the dedicated-core condition. <a class="ref" href="#s1">[1]</a>
+</p>
+</div>
+</section>
+
+<section class="government-section section-shell" id="platform" data-chapter="Pi 4 versus Pi 5">
+<div class="section-label">
+<span>06 / THE PLATFORM</span>
+<span>BCM2711 vs BCM2712 [6]</span>
+</div>
+<div class="section-heading">
+<h2>Older cores.<br>
+<em>Shared cache.</em>
+</h2>
+<p>The replication moves from Raspberry Pi 5 to Pi 4: Cortex-A72 instead of A76, one shared 1 MB L2 for the cluster instead of private L2 plus 2 MB L3, half the RAM. Differences may arise from CPU, cache hierarchy, kernel version or conditions — so the environment gets recorded, not assumed. <a class="ref" href="#s6">[6]</a>
+</p>
+</div>
+<div class="government-layout">
+<figure class="vote-photo">
+<button class="zoom-photo" data-image="assets/raspberry-pi-4.jpg" data-caption="Raspberry Pi 4 Model B — the project's measurement platform: BCM2711, four Cortex-A72 cores, 1 MB shared L2 cache, 4 GB RAM. Processor data from Raspberry Pi documentation [6]." aria-label="View the Raspberry Pi 4 photo">
+<img src="assets/raspberry-pi-4.jpg" alt="Raspberry Pi 4 Model B board" loading="lazy">
+<span>VIEW PHOTO ＋</span>
+</button>
+<figcaption>Pi 4 Model B — the measurement platform. Specifications per Raspberry Pi documentation. <a href="#s6">[6]</a>
+</figcaption>
+</figure>
+<div class="office-list">
+<article>
+<span>01 / PROJECT PLATFORM</span>
+<h3>Raspberry Pi 4 Model B<br>4 GB RAM</h3>
+</article>
+<article>
+<span>02 / CPU · BCM2711</span>
+<h3>Four Cortex-A72 cores<br>1 MB shared L2</h3>
+</article>
+<article>
+<span>03 / REFERENCE PLATFORM [1]</span>
+<h3>Raspberry Pi 5<br>8 GB · A76 · 2 MB L3</h3>
+</article>
+<article>
+<span>04 / SOFTWARE ENVIRONMENT</span>
+<h3>64-bit OS planned<br>Kernel 6.8 · inspect on board</h3>
+</article>
+<p class="editor-note">Measured frequency on Pi 4 is to be confirmed on the board; the reference ran at 2.4 GHz [1]. Pinning reduces direct CPU competition, but cores still share memory — load elsewhere can stretch cache and DRAM access times.</p>
+</div>
+</div>
+<div class="constitutional-bridge">
+<div>
+<span>WHILE THE KERNELS MUST MATCH</span>
+<h3>Same source, same tools,<br>one deliberate difference.</h3>
+</div>
+<p>Standard and PREEMPT_RT kernels should come from the same source that supports Pi 4, with the same operating system, compiler, program revision and compiler options. If base versions differ, that is reported as a possible confounding factor. The paper disables RT bandwidth throttling (sched_rt_runtime_us = −1) for its runs; the learning stage here keeps the default and documents any change. <a class="ref" href="#s1">[1]</a>
+</p>
+</div>
+</section>
+
+<section class="legacy-section" id="hypotheses" data-chapter="Hypotheses and limits">
+<div class="section-shell">
+<div class="section-label">
+<span>07 / EXPECTED OUTCOMES</span>
+<span>PROPOSED — NOT PROMISED</span>
+</div>
+<h2 class="legacy-title reveal">Three hypotheses.<br>
+<em>Zero results yet.</em>
+</h2>
+<div class="legacy-grid">
+<article>
+<span>01</span>
+<h3>RT shrinks the tails</h3>
+<p>PREEMPT_RT reduces large delays with FIFO, RR or DEADLINE under mixed stress — evaluated on p99, maxima and repeated runs, not on means. <a class="ref" href="#s2">[2]</a>
+</p>
+</article>
+<article>
+<span>02</span>
+<h3>Memory still bites</h3>
+<p>Memory load on other cores increases E or R even with the task pinned — shared cache and DRAM do not respect CPU boundaries. Separate load tests size the effect. <a class="ref" href="#s1">[1]</a>
+</p>
+</article>
+<article>
+<span>03</span>
+<h3>Some configs pass</h3>
+<p>Several RT configurations are expected to meet both TC04 (every Rₖ ≤ 4 ms) and TC05 (max L ≤ 500 µs) on Pi 4. Failures demand configuration, payload and trace checks — not excuses. <a class="ref" href="#s1">[1]</a>
+</p>
+</article>
+</div>
+<div class="legacy-note">
+<span>READ THE LIMITS BEFORE QUOTING ANY NUMBER</span>
+<p>A run of 10,000 invocations at 250 Hz spans about 40 nominal seconds; its maximum describes those samples under those conditions. Repeated runs and retained raw data assess consistency — they do not replace WCET analysis, blocking-time analysis or flight-safety verification. Meeting CPU timing still leaves sensor and actuator timing to be evaluated separately. <a class="ref" href="#s1">[1]</a>
+</p>
+</div>
+<div class="continuity">
+<span>2026<br>
+<small>PI 5 REFERENCE STUDY [1]</small>
+</span>
+<i>
+</i>
+<span class="selected">PI 4 · 4GB<br>
+<small>THIS REPLICATION</small>
+</span>
+<i>
+</i>
+<span>NEXT<br>
+<small>SENSORS &amp; ACTUATORS</small>
+</span>
+</div>
+<p class="continuity-caption">Task period and scheduling parameters follow [1]; the platform deliberately differs — CPU, cache, kernel and conditions are recorded run by run.</p>
+</div>
+</section>
+
+<section class="reflection section-shell">
+<div class="section-label">
+<span>CHECK YOURSELF / ONE QUESTION</span>
+<span>PICK AN ANSWER TO SEE THE REASONING</span>
+</div>
+<h2>Booting PREEMPT_RT —<br>is the 4 ms deadline now <em>guaranteed?</em>
+</h2>
+<div class="quiz" id="quiz">
+<button data-answer="no">No — RT shrinks kernel-side delay, not the whole pipeline</button>
+<button data-answer="yes">Yes — a real-time kernel guarantees real-time behavior</button>
+</div>
+<p id="quiz-feedback" class="quiz-feedback" aria-live="polite" hidden>
+</p>
+</section>
+
+<section class="manual-section section-shell" id="manual" data-chapter="Field manual: first commands">
+<div class="section-label">
+<span>08 / FIELD MANUAL</span>
+<span>FROM BOX TO FIRST CSV · APPENDIX</span>
+</div>
+<div class="section-heading">
+<h2>Five terminals<br>
+<em>to first data.</em>
+</h2>
+<p>The appendix of the report, condensed: enable SSH, record the system, test the timer, confirm PREEMPT_RT, keep the data. Exact commands for the installed board — check options against the versions you actually have.</p>
+</div>
+<div class="manual-grid">
+<div class="term">
+<div class="term-head"><i></i><i></i><i></i><span>T1 · ENABLE SSH &amp; CONNECT [13]</span></div>
+<pre><i># on Pi, with monitor + keyboard:</i>
+<b>sudo raspi-config</b>   <i># Interface Options → SSH → Enable</i>
+<b>systemctl status ssh</b>
+<i># on Windows PowerShell:</i>
+<b>ssh</b> <u>your_user</u>@<u>pi_IP</u>   <i># verify host key on first connect</i></pre>
+</div>
+<div class="term">
+<div class="term-head"><i></i><i></i><i></i><span>T2 · RECORD THE SYSTEM</span></div>
+<pre><b>mkdir -p ~/uav-rt/{src,logs,metadata}</b>
+<b>uname -a</b> &gt; metadata/kernel.txt
+<b>lscpu</b> &gt; metadata/cpu.txt
+<b>free -h</b> &gt; metadata/memory.txt
+<b>vcgencmd measure_temp</b>
+<b>vcgencmd get_throttled</b>   <i># start AND end of runs</i></pre>
+</div>
+<div class="term">
+<div class="term-head"><i></i><i></i><i></i><span>T3 · TEST THE TIMER [14]</span></div>
+<pre><b>sudo apt install build-essential git stress-ng rt-tests</b>
+<b>sudo cyclictest</b> -m -t1 -a2 -p50 -i4000 -l2500 -q
+<i># then a CPU-only pilot, second session:</i>
+<b>taskset -c 0,1 stress-ng</b> --cpu 2 --timeout 15s --metrics-brief</pre>
+</div>
+<div class="term">
+<div class="term-head"><i></i><i></i><i></i><span>T4 · CONFIRM PREEMPT_RT [12]</span></div>
+<pre><b>uname -r</b>
+<b>cat /sys/kernel/realtime</b>   <i># expect: 1</i>
+<b>zgrep CONFIG_PREEMPT_RT</b> /proc/config.gz
+<i># CONFIG_PREEMPT_RT=y is the evidence —</i>
+<i># chrt alone proves nothing</i></pre>
+</div>
+<div class="term">
+<div class="term-head"><i></i><i></i><i></i><span>T5 · KEEP &amp; TRANSFER THE DATA</span></div>
+<pre><i># after each run, on Windows:</i>
+<b>scp -r</b> <u>your_user</u>@<u>pi_IP</u>:~/uav-rt/logs .
+<b>scp -r</b> <u>your_user</u>@<u>pi_IP</u>:~/uav-rt/metadata .
+<i># milestone 1: SSH + timer test done</i>
+<i># milestone 2: valid CSV, OTHER n0, idle</i></pre>
+</div>
+</div>
+<p class="editor-note" style="margin-top:26px">Cyclictest tests timer latency without the UAV payload. Check installed options via cyclictest --help and save the output; resolve permission or memory-locking errors before longer tests. Full walk-through: report appendix, per [12]–[14].</p>
+<div class="figure-duo">
+<figure>
+<img src="assets/architecture-report.png" alt="Proposed experimental architecture diagram" loading="lazy">
+<figcaption>FIG. 1 · PROPOSED ARCHITECTURE — Windows host for SSH, source control and analysis; Pi 4 runs measurement and stress. After [1, §4.2].</figcaption>
+</figure>
+<figure>
+<img src="assets/workflow-report.png" alt="Implementation stages M0 to M6 workflow diagram" loading="lazy">
+<figcaption>FIG. 2 · IMPLEMENTATION STAGES — M0 to M6 with the checks required before progressing.</figcaption>
+</figure>
+</div>
+</section>
+
+<section class="sources-section" id="sources" data-chapter="Open dossier &amp; references">
+<div class="section-shell">
+<div class="section-label">
+<span>09 / OPEN DOSSIER</span>
+<span>EVERY CLAIM HAS AN ADDRESS</span>
+</div>
+<div class="section-heading">
+<h2>Read it<br>
+<em>at the source.</em>
+</h2>
+<p>Bracketed [numbers] throughout the dossier resolve here. Numbering follows the report's bibliography; online sources were checked for the project on 7 October 2026.</p>
+</div>
+<ol class="source-list">
+<li id="s1">
+<span>ARXIV · REFERENCE STUDY</span>
+<a href="https://arxiv.org/abs/2604.19275" target="_blank" rel="noopener">Giacomossi et al. — Scheduling Analysis of UAV Flight Control Workloads on PREEMPT_RT Linux Using a Raspberry Pi 5</a>
+<p>arXiv:2604.19275v2, 2 June 2026. Task model, parameters, Pi 5 results (tables 3–4).</p>
+</li>
+<li id="s2">
+<span>LINUX KERNEL DOCUMENTATION</span>
+<a href="https://docs.kernel.org/core-api/real-time/differences.html" target="_blank" rel="noopener">How realtime kernels differ</a>
+<p>Threaded IRQs, sleeping spinlocks, timer paths — what PREEMPT_RT changes.</p>
+</li>
+<li id="s3">
+<span>LINUX KERNEL DOCUMENTATION</span>
+<a href="https://docs.kernel.org/locking/locktypes.html" target="_blank" rel="noopener">Lock types and their rules</a>
+<p>Priority inversion and priority inheritance; raw_spinlock_t exceptions.</p>
+</li>
+<li id="s4">
+<span>LINUX MAN-PAGES</span>
+<a href="https://man7.org/linux/man-pages/man7/sched.7.html" target="_blank" rel="noopener">sched(7)</a>
+<p>FIFO, RR and nice semantics; real-time priority range 1–99.</p>
+</li>
+<li id="s5">
+<span>LINUX KERNEL DOCUMENTATION</span>
+<a href="https://docs.kernel.org/scheduler/sched-deadline.html" target="_blank" rel="noopener">Deadline Task Scheduling</a>
+<p>EDF + CBS; admission control and root-domain constraints for pinned tasks.</p>
+</li>
+<li id="s6">
+<span>RASPBERRY PI LTD · DOCUMENTATION</span>
+<a href="https://www.raspberrypi.com/documentation/computers/processors.html" target="_blank" rel="noopener">Processors — BCM2711 and BCM2712</a>
+<p>CPU and cache characteristics of Pi 4 and Pi 5.</p>
+</li>
+<li id="s7">
+<span>LINUX MAN-PAGES</span>
+<a href="https://man7.org/linux/man-pages/man2/clock_nanosleep.2.html" target="_blank" rel="noopener">clock_nanosleep(2)</a>
+<p>Absolute sleeps, EINTR handling, CLOCK_MONOTONIC.</p>
+</li>
+<li id="s8">
+<span>LINUX KERNEL DOCUMENTATION</span>
+<a href="https://docs.kernel.org/scheduler/sched-design-CFS.html" target="_blank" rel="noopener">CFS Scheduler (and the EEVDF transition)</a>
+<p>Why the ordinary class depends on kernel version — record it.</p>
+</li>
+<li id="s9">
+<span>STRESS-NG · SOURCE REPOSITORY</span>
+<a href="https://github.com/ColinIanKing/stress-ng" target="_blank" rel="noopener">Colin Ian King — stress-ng</a>
+<p>Load generator for CPU, memory and kernel stressors; retain versions.</p>
+</li>
+<li id="s10">
+<span>REFERENCE IMPLEMENTATION</span>
+<a href="https://github.com/luizgiacomossi/Real-Time-Flight-Control-With-Linux" target="_blank" rel="noopener">Real-Time-Flight-Control-With-Linux</a>
+<p>The authors' payload implementation; record revision and reused parts.</p>
+</li>
+<li id="s11">
+<span>RASPBERRY PI LTD · DOCUMENTATION</span>
+<a href="https://www.raspberrypi.com/documentation/computers/getting-started.html" target="_blank" rel="noopener">Getting started</a>
+<p>First boot and setup of the board.</p>
+</li>
+<li id="s12">
+<span>RASPBERRY PI LTD · DOCUMENTATION</span>
+<a href="https://www.raspberrypi.com/documentation/computers/linux_kernel.html" target="_blank" rel="noopener">The Linux kernel</a>
+<p>Building kernels for Pi; retain branch, revision and .config.</p>
+</li>
+<li id="s13">
+<span>RASPBERRY PI LTD · DOCUMENTATION</span>
+<a href="https://www.raspberrypi.com/documentation/computers/remote-access.html" target="_blank" rel="noopener">Remote access — SSH section</a>
+<p>Enabling SSH on Raspberry Pi OS.</p>
+</li>
+<li id="s14">
+<span>RT-TESTS · DEBIAN MANPAGES</span>
+<a href="https://manpages.debian.org/testing/rt-tests/cyclictest.8.en.html" target="_blank" rel="noopener">cyclictest(8)</a>
+<p>Timer-latency measurement; verify options against the installed version.</p>
+</li>
+</ol>
+<div class="editorial-method" id="anh">
+<h3>Figures &amp; editorial notes</h3>
+<div>
+<p><strong>Cover photo:</strong> stock photo of a quadcopter in flight — illustrative; the measured workload computes with predefined in-memory inputs. <strong>Platform photo:</strong> stock photo of a Raspberry Pi 4 Model B. <strong>Figures 1–2:</strong> block diagrams authored for the report, following the architecture and stages of [1, §4]. <strong>Data chart &amp; CSV:</strong> transcribed from [1, table 4] (Pi 5, max wake-up latency under stress, microseconds).</p>
+<p>No Pi 4 timing data exist yet. Every number in chapter 03 is Pi 5 reference data from [1] and will be replaced by measured Pi 4 results after the matrix runs. The 500 µs wake-up target (TC05) is an exploratory project threshold — 12.5% of the period — and is not evidence of flight stability.</p>
+<p>Sections labeled “insight” are editorial interpretation of the cited sources, not quotations. Short quotations carry quotation marks and a citation.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="end-section">
+<span>RASPBERRY PI 4 · 4 GB · 250 Hz · D = 4,000 µs</span>
+<h2>One deadline.<br>
+<em>Awaiting measurement.</em>
+</h2>
+<a href="assets/report.pdf" download>DOWNLOAD THE REPORT (PDF)</a>
+<a href="#dau">READ AGAIN FROM THE TOP</a>
+</section>
+</main>
+<footer>
+<a href="#dau" class="wordmark">UAV·RT<span>PREEMPT_RT · PI&nbsp;4 · 4&nbsp;GB</span>
+</a>
+<p>Testing &amp; verification dossier · Data, figures &amp; one deadline</p>
+<a href="#sources">Reference list</a>
+</footer>
+<dialog id="photo-dialog">
+<button class="dialog-close" aria-label="Close photo">Close ×</button>
+<figure>
+<img id="dialog-image" src="assets/uav-flight.jpg" alt="">
+<figcaption id="dialog-caption">
+</figcaption>
+</figure>
+</dialog>
+<div class="chapter-indicator" aria-hidden="true">
+<span id="chapter-name">Opening</span>
+<span id="reading-percent">0%</span>
+</div>
+<script src="app.js">
+</script>
+<script src="cinema.js">
+</script>
+</body>
+</html>

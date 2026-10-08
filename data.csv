@@ -1,0 +1,9 @@
+policy,kernel_standard_max_us,kernel_preempt_rt_max_us,reduction_pct,std_share_of_deadline_pct,rt_share_of_deadline_pct
+SCHED_OTHER nice 0,8626,9015,-4.51,215.65,225.38
+SCHED_OTHER nice -19,9424,4351,53.84,235.60,108.78
+SCHED_FIFO priority 50,700,160,77.14,17.50,4.00
+SCHED_FIFO priority 99,1848,224,87.88,46.20,5.60
+SCHED_RR priority 50,787,225,71.41,19.68,5.63
+SCHED_RR priority 99,472,182,61.44,11.80,4.55
+SCHED_DEADLINE Q=400us,345,209,39.42,8.63,5.23
+SCHED_DEADLINE Q=800us,443,197,55.53,11.08,4.93
