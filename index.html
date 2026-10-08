@@ -6,12 +6,12 @@
 <meta name="theme-color" content="#05070e">
 <title>Scheduling Analysis of UAV Flight-Control Workloads on PREEMPT_RT Linux — Raspberry Pi 4 Replication</title>
 <meta name="description" content="A testing &amp; verification dossier: scheduling analysis of a 250 Hz UAV flight-control workload on Raspberry Pi 4 with 4 GB RAM, standard Linux kernel versus PREEMPT_RT. Replicating the Raspberry Pi 5 study by Giacomossi et al.">
-<link rel="canonical" href="https://daotrunganhvt72.github.io/uav-preempt-rt-pi4/">
+<link rel="canonical" href="https://daotrunganhvt72.github.io/uav-rt-dossier/">
 <meta property="og:title" content="Scheduling Analysis of UAV Flight-Control Workloads on PREEMPT_RT Linux — Raspberry Pi 4 Replication">
 <meta property="og:description" content="250 Hz control task, one 4 ms deadline, two kernels, eight scheduling policies, 96 planned runs. A replication of the Pi 5 study on Raspberry Pi 4.">
 <meta property="og:type" content="article">
 <meta property="og:locale" content="en_US">
-<meta property="og:image" content="https://daotrunganhvt72.github.io/uav-preempt-rt-pi4/assets/og-cover.jpg">
+<meta property="og:image" content="https://daotrunganhvt72.github.io/uav-rt-dossier/assets/og-cover.jpg">
 <link rel="icon" href="assets/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -396,7 +396,7 @@
 <span id="highlight-label">FIFO P99 · RT MAX (µs)</span>
 </div>
 </div>
-<p class="chart-note">Maximum wake-up latency in microseconds, measured under stress on Raspberry Pi 5 [1, table 4]. Pi 4 numbers will replace this chart after measurement.</p>
+<p class="chart-note">Maximum wake-up latency in microseconds, measured under stress on Raspberry Pi 5 [1, table 4]. <strong style="color:#ff7188">✕ = beyond the 4,000 µs deadline</strong> (both kernels, SCHED_OTHER; RT alone for OTHER nice −19). Pi 4 numbers will replace this chart after measurement.</p>
 </div>
 <div class="legend-panel">
 <div class="chart-focus" id="chart-focus">

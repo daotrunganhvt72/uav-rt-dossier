@@ -197,7 +197,9 @@ function drawBars() {
     } else {
       const draw = (which, yOff, color) => {
         const x1 = xFor(chartMode, policy, which);
-        const over = chartMode === 'share' && (which === 'std' ? policy.std : policy.rt) / 40 > 100;
+        const valueUs = which === 'std' ? policy.std : policy.rt;
+        // ✕ marks any maximum beyond the 4,000 µs deadline, in every mode.
+        const over = valueUs > 4000;
         row.append(el('rect', {x: LEFT, y: y + yOff, width: Math.max(2, x1 - LEFT), height: 13, fill: color, opacity: which === 'std' ? .55 : .9, rx: 2}));
         valueLabel(x1, labelFor(which), y + yOff + 10.5, which === 'std' ? '#aab6bd' : '#bff1e0', over);
       };

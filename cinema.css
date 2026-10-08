@@ -195,7 +195,7 @@ body{font-size:16px}
 .session-stage[data-phase="2"] .seg-payload,.session-stage[data-phase="3"] .seg-store{opacity:1}
 .bar-row.over .bar-track i{background:linear-gradient(90deg,#8a2233,#d7243f)}
 .bar-row.over b{color:#ff7188}
-.bar-row.over span::after{content:" ✕";}
+
 .figure-duo{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:36px}
 .figure-duo figure{border:1px solid #ffffff12;background:#0a101680;padding:14px}
 .figure-duo img{border-radius:6px}
